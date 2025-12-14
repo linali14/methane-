@@ -23,15 +23,23 @@
         }
         .controls strong { color: #880000; }
     </style>
-    <!-- Load Three.js library from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.156.0/build/three.min.js"></script>
+    <!-- Removed old, error-prone CDN script tags -->
 </head>
 <body>
 <div class="controls">
     <p>Methane Molecule ($\text{CH}_4$) - **Rotating Model**</p>
-    <p>Use **Click and Drag** to manually rotate the molecule in any direction.</p>
+    <p>Use **Click and Drag** to manually rotate the molecule and label together.</p>
 </div>
-<script>
+<!-- All Three.js functionality is now loaded via ES Modules for stability -->
+<script type="module">
+    // Import core Three.js components
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.156.0/build/three.module.js';
+    // Import extensions using the jsm path, making them available as FontLoader and TextGeometry
+    import { FontLoader } from 'https://cdn.jsdelivr.net/npm/three@0.156.0/examples/jsm/loaders/FontLoader.js';
+    import { TextGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.156.0/examples/jsm/geometries/TextGeometry.js';
+    
+    // The main execution block
+    
     // --- Global Setup ---
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -40,8 +48,8 @@
     // Enable shadows in the renderer
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.shadowMap.enabled = true; // IMPORTANT: Enables shadow mapping
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+    renderer.shadowMap.enabled = true; 
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
 
     // Camera Positioning
@@ -60,6 +68,7 @@
     const RADIUS_H = 0.3; // Hydrogen atom radius
     const BOND_LENGTH = 2.0; // Distance from center C to center H
     const BOND_THICKNESS = 0.1;
+    const PLANE_Y_POSITION = -RADIUS_C - 0.1; // Plane position slightly below the carbon center
 
     // --- Lighting ---
     
@@ -74,7 +83,7 @@
     // Enable shadow casting for this light source
     directionalLight.castShadow = true; 
     
-    // Configure shadow map size and frustum to prevent artifacting
+    // Configure shadow map size and frustum 
     directionalLight.shadow.mapSize.width = 1024;
     directionalLight.shadow.mapSize.height = 1024;
     directionalLight.shadow.camera.near = 0.5;
@@ -86,23 +95,33 @@
     
     scene.add(directionalLight);
 
+    // --- Green Plane (The ground) ---
+    const plane_geometry = new THREE.PlaneGeometry(30, 30);
+    // Use MeshPhongMaterial for the plane so it can receive shadows
+    const plane_material = new THREE.MeshPhongMaterial({ color: PLANE_COLOR, side: THREE.DoubleSide });
+    const plane = new THREE.Mesh(plane_geometry, plane_material);
+    plane.rotation.x = -Math.PI / 2; // Rotate to lie flat
+    plane.position.y = PLANE_Y_POSITION; // Position under the molecule
+    plane.receiveShadow = true; 
+    plane.castShadow = false;
+    scene.add(plane);
+
     // --- Methane Geometry and Structure ($\text{CH}_4$) ---
 
-    // The molecular group will hold all atoms and bonds, allowing us to rotate the entire structure together.
+    // The molecular group will hold all atoms, bonds, and the label.
     const methaneGroup = new THREE.Group();
-    methaneGroup.castShadow = true; // The entire group casts a shadow
-
+    // The group itself will manage casting shadows for all children
+    
     // 1. Carbon Atom (Center)
     const c_geometry = new THREE.SphereGeometry(RADIUS_C, 32, 32);
-    // Use MeshPhongMaterial for better interaction with light and shadows
     const c_material = new THREE.MeshPhongMaterial({ color: CARBON_COLOR });
     const carbon = new THREE.Mesh(c_geometry, c_material);
     carbon.position.set(0, 0, 0);
-    carbon.castShadow = true; // Carbon casts shadow
-    carbon.receiveShadow = true; // Carbon receives shadow
+    carbon.castShadow = true; 
+    carbon.receiveShadow = true; 
     methaneGroup.add(carbon);
 
-    // Define the tetrahedral positions for the Hydrogen atoms (Methane structure)
+    // Define the tetrahedral positions for the Hydrogen atoms
     const H_positions = [
         new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(BOND_LENGTH),
         new THREE.Vector3(-1, -1, 1).normalize().multiplyScalar(BOND_LENGTH),
@@ -113,10 +132,9 @@
     const h_geometry = new THREE.SphereGeometry(RADIUS_H, 32, 32);
     const h_material = new THREE.MeshPhongMaterial({ color: HYDROGEN_COLOR });
     const bond_geometry = new THREE.CylinderGeometry(BOND_THICKNESS, BOND_THICKNESS, BOND_LENGTH - RADIUS_C - RADIUS_H, 8);
-    // Use MeshPhongMaterial for bonds to respond to light
     const bond_material = new THREE.MeshPhongMaterial({ 
         color: BOND_COLOR, 
-        emissive: BOND_EMISSIVE, // Light gray emissive for a subtle glow
+        emissive: BOND_EMISSIVE, 
         emissiveIntensity: 0.3
     });
 
@@ -130,20 +148,13 @@
         methaneGroup.add(hydrogen);
 
         // --- Bond (Cylinder) ---
-        // 1. Create the bond mesh
         const bond = new THREE.Mesh(bond_geometry, bond_material);
         bond.castShadow = true;
         bond.receiveShadow = true;
-
-        // 2. Position the bond midpoint between Carbon (0,0,0) and Hydrogen (pos)
-        // Position is halfway along the vector 'pos'
-        bond.position.copy(pos).multiplyScalar(0.5);
-
-        // 3. Orient the bond to point from Carbon to Hydrogen
-        // Get the direction vector from C to H
-        const direction = new THREE.Vector3().copy(pos).normalize();
         
-        // Use Quaternion to rotate the cylinder (default along Y-axis) to align with the direction vector
+        // Position and orient the bond 
+        bond.position.copy(pos).multiplyScalar(0.5);
+        const direction = new THREE.Vector3().copy(pos).normalize();
         const axis = new THREE.Vector3(0, 1, 0);
         const quaternion = new THREE.Quaternion();
         quaternion.setFromUnitVectors(axis, direction);
@@ -152,22 +163,74 @@
         methaneGroup.add(bond);
     });
 
+    // --- Methane Label ($\text{CH}_4$) ---
+    
+    // FontLoader is now imported directly, not accessed through THREE.
+    const loader = new FontLoader(); 
+    
+    // Load a font (using built-in helvetiker_regular for simplicity)
+    loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
+        
+        // Text configuration for "CH4"
+        const textOptions = {
+            font: font,
+            size: 0.8,
+            height: 0.1, // Small extrusion for 3D depth
+            curveSegments: 12
+        };
+        
+        // Material for the text, so it can cast shadows
+        const textMaterial = new THREE.MeshPhongMaterial({ color: 0x444444, shininess: 30 });
+
+        // Geometry for "CH" - TextGeometry is now imported directly.
+        const chGeometry = new TextGeometry('CH', textOptions); 
+        chGeometry.computeBoundingBox();
+        const ch = new THREE.Mesh(chGeometry, textMaterial);
+        ch.castShadow = true;
+        ch.receiveShadow = true;
+        
+        // Geometry for the subscript "4" - TextGeometry is now imported directly.
+        const sub4Options = { ...textOptions, size: 0.4, height: 0.05 };
+        const sub4Geometry = new TextGeometry('4', sub4Options); 
+        sub4Geometry.computeBoundingBox();
+        const sub4 = new THREE.Mesh(sub4Geometry, textMaterial);
+        sub4.castShadow = true;
+        sub4.receiveShadow = true;
+
+        // Position the subscript '4' relative to 'CH'
+        const chWidth = chGeometry.boundingBox.max.x - chGeometry.boundingBox.min.x;
+        sub4.position.x = chWidth - 0.1; // Place it next to CH
+        sub4.position.y = -0.3; // Drop it down for subscript look
+        
+        // Create a separate group for the label text components
+        const labelGroup = new THREE.Group();
+        labelGroup.add(ch);
+        labelGroup.add(sub4);
+        
+        // Center the entire label group horizontally (using CH width as a proxy)
+        const labelWidth = chWidth + (sub4Options.size / 2); // Approximate total width
+        labelGroup.position.x = -labelWidth / 2 + 0.1; 
+        
+        // Position the label below the molecule, just above the plane
+        labelGroup.position.y = PLANE_Y_POSITION + 0.1; 
+        labelGroup.rotation.x = -Math.PI * 0.1; // Tilt slightly for better 3D effect
+        
+        // Add the label to the Methane group so it rotates with the molecule
+        methaneGroup.add(labelGroup);
+        
+        // Ensure animate starts after the font is loaded, as the label is critical.
+        animate();
+    }, (xhr) => {
+        // Optional: Progress tracking
+    }, (error) => {
+        // Handle font loading error
+        console.error('An error occurred while loading the font:', error);
+        // Start animation anyway, without the label
+        animate();
+    });
+
     // Add the fully constructed molecule group to the scene
     scene.add(methaneGroup);
-
-    // --- Green Plane (The ground) ---
-    const plane_geometry = new THREE.PlaneGeometry(30, 30);
-    // Use MeshPhongMaterial for the plane so it can receive shadows
-    const plane_material = new THREE.MeshPhongMaterial({ color: PLANE_COLOR, side: THREE.DoubleSide });
-    const plane = new THREE.Mesh(plane_geometry, plane_material);
-    plane.rotation.x = -Math.PI / 2; // Rotate to lie flat (90 degrees around X-axis)
-    plane.position.y = -RADIUS_C - 0.1; // Place slightly below the molecule center
-    
-    // IMPORTANT: Plane must receive shadows, but should NOT cast them
-    plane.receiveShadow = true; 
-    plane.castShadow = false; // Plane does not cast shadows
-
-    scene.add(plane);
 
     // --- Interactivity (Mouse Controls) ---
 
@@ -175,7 +238,7 @@
     let previousMousePosition = { x: 0, y: 0 };
     const rotationSpeed = 0.01;
 
-    // Mouse Down: Start dragging and pause auto-rotation (if desired, though here we use rotation only for animation)
+    // Mouse Down: Start dragging
     renderer.domElement.addEventListener('mousedown', (e) => {
         isDragging = true;
         previousMousePosition.x = e.clientX;
@@ -189,11 +252,10 @@
         const deltaX = e.clientX - previousMousePosition.x;
         const deltaY = e.clientY - previousMousePosition.y;
 
-        // Rotate the methaneGroup around the global Y-axis (vertical) based on horizontal movement
+        // Rotate the methaneGroup around the global Y-axis
         methaneGroup.rotation.y += deltaX * rotationSpeed;
         
-        // Rotate the methaneGroup around the local X-axis (horizontal tilt) based on vertical movement
-        // We use the local X-axis rotation here for intuitive tilting
+        // Rotate the methaneGroup around the local X-axis
         methaneGroup.rotation.x += deltaY * rotationSpeed;
         
         previousMousePosition.x = e.clientX;
@@ -205,7 +267,7 @@
         isDragging = false;
     });
     
-    // Handle touch events for mobile rotation (optional but good practice)
+    // Touch event handlers for mobile devices
     renderer.domElement.addEventListener('touchstart', (e) => {
         e.preventDefault();
         isDragging = true;
@@ -233,33 +295,22 @@
         isDragging = false;
     });
 
-
     // --- Animation Loop ---
 
     function animate() {
         requestAnimationFrame(animate);
 
-        // Auto-animation: Apply a gentle, constant rotation to the METHANE GROUP
-        // This rotation stops when the user drags the mouse, but restarts immediately after.
-        // It provides a continuous animation when the user is idle.
+        // Auto-animation: gentle rotation only when the user is not dragging
         if (!isDragging) {
             methaneGroup.rotation.y += 0.005; 
         }
         
-        // Render the scene
         renderer.render(scene, camera);
     }
 
-    // Start the animation loop
-    animate();
-
-    // --- Window Resize Handler ---
-
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+    // Since font loading is asynchronous, we need to ensure the animation
+    // loop is called after the font load succeeds or fails.
+    // The call to animate() has been moved inside the loader.load callback.
 
 </script>
 </body>
